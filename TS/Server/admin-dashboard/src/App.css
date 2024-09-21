@@ -1,0 +1,58 @@
+/* src/App.css */
+
+body {
+  font-family: Arial, sans-serif;
+}
+
+#controlPanel,
+#gameStats {
+  margin-top: 20px;
+}
+
+#playerTable {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+#playerTable th,
+#playerTable td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+#playerTable th {
+  background-color: #f2f2f2;
+}
+
+#messages {
+  border: 1px solid #ddd;
+  padding: 10px;
+  height: 200px;
+  overflow-y: scroll;
+}
+
+.app-container {
+  font-family: Arial, sans-serif;
+  padding: 20px;
+}
+
+nav ul {
+  list-style-type: none;
+  padding: 0;
+  display: flex;
+  gap: 20px;
+}
+
+nav ul li {
+  display: inline;
+}
+
+nav ul li a {
+  text-decoration: none;
+  color: #333;
+  font-weight: bold;
+}
+
+nav ul li a:hover {
+  color: #007bff;
+}
