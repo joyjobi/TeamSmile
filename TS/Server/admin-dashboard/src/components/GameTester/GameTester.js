@@ -1,10 +1,9 @@
-// src/components/GameTester/GameTester.js
-
 import React, { useEffect, useState, useContext } from "react";
 import { SocketContext } from "../../contexts/SocketContext";
 import Prompt from "./Prompt";
 import Response from "./Response";
 import Result from "./Result";
+import Scores from "./Scores";
 import PlayerList from "./PlayerList";
 import "./GameTester.css";
 import { toast } from "react-toastify";
@@ -31,6 +30,7 @@ function GameTester() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState("");
   const [players, setPlayers] = useState([]);
+  const [playerScores, setPlayerScores] = useState([]);
   const [countdown, setCountdown] = useState("");
   const [countdownIntervalId, setCountdownIntervalId] = useState(null);
 
@@ -83,6 +83,12 @@ function GameTester() {
       resetGame();
     });
 
+    // Listen for player_scores event
+    socket.on("player_scores", (data) => {
+      setPlayerScores(data.scores);
+      console.log("Received player scores:", data.scores);
+    });
+
     return () => {
       socket.off("game_type");
       socket.off("game_type_changed");
@@ -90,6 +96,7 @@ function GameTester() {
       socket.off("result");
       socket.off("player_list");
       socket.off("reset");
+      socket.off("player_scores");
     };
   }, [socket, playerId]);
 
@@ -130,6 +137,7 @@ function GameTester() {
     setPrompt("");
     setResult("");
     setPlayers([]);
+    setPlayerScores([]);
     clearCountdown();
   };
 
@@ -169,8 +177,8 @@ function GameTester() {
       sx={{
         minHeight: "100vh",
         backgroundColor: "#f5f5f5",
-        paddingTop: 4,
-        paddingBottom: 4,
+        paddingTop: 2,
+        paddingBottom: 2,
       }}
     >
       <Box
@@ -178,7 +186,7 @@ function GameTester() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          marginBottom: 4,
+          marginBottom: 2,
         }}
       >
         <SportsEsportsIcon fontSize="large" sx={{ marginRight: 1 }} />
@@ -191,7 +199,7 @@ function GameTester() {
         <Card
           elevation={3}
           sx={{
-            padding: 4,
+            padding: 2,
             textAlign: "center",
           }}
         >
@@ -221,11 +229,18 @@ function GameTester() {
         <Card
           elevation={3}
           sx={{
-            padding: 4,
+            padding: 2,
           }}
         >
           <CardContent>
-            <Grid container spacing={3}>
+            {countdown && (
+              <Box mb={2} textAlign="center">
+                <Typography variant="subtitle1">
+                  Time Remaining: {countdown}
+                </Typography>
+              </Box>
+            )}
+            <Grid container spacing={2}>
               <Grid item xs={12}>
                 <Typography variant="h5" align="center" gutterBottom>
                   {gameType === "rps" ? "Rock-Paper-Scissors" : "Counting Game"}
@@ -248,14 +263,13 @@ function GameTester() {
               <Grid item xs={12}>
                 <PlayerList players={players} />
               </Grid>
+              <Grid item xs={12}>
+                <Scores
+                  playerScores={playerScores}
+                  currentPlayerId={playerId}
+                />
+              </Grid>
             </Grid>
-            {countdown && (
-              <Box mt={2} textAlign="center">
-                <Typography variant="subtitle1">
-                  Time Remaining: {countdown}
-                </Typography>
-              </Box>
-            )}
           </CardContent>
         </Card>
       )}

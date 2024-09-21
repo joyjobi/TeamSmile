@@ -1,43 +1,63 @@
-// src/components/CurrentPrompt.js
+// src/components/AdminDashboard/CurrentPrompt.js
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from "react";
+import { Typography, Box } from "@mui/material";
 
 function CurrentPrompt({ currentPrompt, nextRoundTime }) {
-  const [countdown, setCountdown] = useState('N/A');
+  const [timeRemaining, setTimeRemaining] = useState("");
 
   useEffect(() => {
-    let interval;
-
-    const updateCountdown = () => {
-      if (nextRoundTime) {
-        const now = Date.now();
-        const timeRemaining = Math.max(0, nextRoundTime - now);
-        setCountdown(`${(timeRemaining / 1000).toFixed(1)} seconds`);
-
-        if (timeRemaining <= 0) {
-          setCountdown('Starting...');
-        }
-      } else {
-        setCountdown('N/A');
-      }
-    };
-
-    if (nextRoundTime) {
-      interval = setInterval(updateCountdown, 100);
-    } else {
-      setCountdown('N/A');
+    if (!nextRoundTime) {
+      setTimeRemaining("");
+      return;
     }
 
-    return () => {
-      if (interval) clearInterval(interval);
+    const updateTimer = () => {
+      const now = Date.now();
+      const difference = nextRoundTime - now;
+
+      if (difference <= 0) {
+        setTimeRemaining("Time's up!");
+        clearInterval(intervalId);
+        return;
+      }
+
+      const seconds = Math.floor((difference / 1000) % 60);
+      const minutes = Math.floor((difference / (1000 * 60)) % 60);
+      const hours = Math.floor(difference / (1000 * 60 * 60));
+
+      let timeString = "";
+      if (hours > 0) timeString += `${hours}h `;
+      if (minutes > 0) timeString += `${minutes}m `;
+      timeString += `${seconds}s`;
+
+      setTimeRemaining(timeString);
     };
+
+    // Initial call
+    updateTimer();
+
+    // Update every second
+    const intervalId = setInterval(updateTimer, 1000);
+
+    // Cleanup on unmount or when nextRoundTime changes
+    return () => clearInterval(intervalId);
   }, [nextRoundTime]);
 
   return (
-    <div id="currentPrompt">
-      <h3>Current Prompt: <span>{currentPrompt}</span></h3>
-      <h3>Next Round Starts In: <span>{countdown}</span></h3>
-    </div>
+    <Box sx={{ padding: 2, backgroundColor: "#e3f2fd", borderRadius: 2 }}>
+      <Typography variant="h6" gutterBottom>
+        Current Prompt
+      </Typography>
+      <Typography variant="body1" gutterBottom>
+        {currentPrompt}
+      </Typography>
+      {timeRemaining && (
+        <Typography variant="subtitle1" color="textSecondary">
+          Time Remaining: {timeRemaining}
+        </Typography>
+      )}
+    </Box>
   );
 }
 

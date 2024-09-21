@@ -8,8 +8,8 @@ class GameManager {
     this.gameTypes = ["rps", "counting"];
     this.activeGameType = "rps"; // Default game type
     this.gameState = {
-      promptInterval: 10000, // 10 seconds
-      responseTimeout: 7000, // 7 seconds
+      promptInterval: 3000, // 3 seconds
+      responseTimeout: 8000, // 8 seconds
       currentPrompt: null,
       state: "waiting", // 'waiting', 'prompted', 'responded'
       responses: [],
@@ -21,13 +21,16 @@ class GameManager {
   addClient(socket, player_id) {
     this.clients[socket.id] = { player_id, socket };
     this.connectedPlayers.push(player_id);
-    socket.join("game"); // Join a common room
+    socket.join("game"); // Join the 'game' room for Game Testers
+    this.initializePlayerScore(player_id);
     this.broadcastPlayerList();
     // Send the active game type to the client
     socket.emit("game_type", { gameType: this.activeGameType });
 
     // Emit updated client list to Admin Dashboard
-    this.io.emit("admin_client_list", { clients: this.connectedPlayers });
+    this.io
+      .to("admins")
+      .emit("admin_client_list", { clients: this.connectedPlayers });
   }
 
   removeClient(socket) {
@@ -41,7 +44,9 @@ class GameManager {
       this.broadcastPlayerList();
 
       // Emit updated client list to Admin Dashboard
-      this.io.emit("admin_client_list", { clients: this.connectedPlayers });
+      this.io
+        .to("admins")
+        .emit("admin_client_list", { clients: this.connectedPlayers });
       return player_id;
     }
     return null;
@@ -49,19 +54,33 @@ class GameManager {
 
   broadcastPlayerList() {
     const clients = this.connectedPlayers.map((player_id) => ({ player_id }));
-    this.io.emit("player_list", { clients });
+    this.io.to("admins").emit("admin_client_list", { clients });
+    this.io.to("game").emit("player_list", { clients }); // Optionally send to Game Testers
+  }
+
+  initializePlayerScore(player_id) {
+    if (!this.playerScores[player_id]) {
+      this.playerScores[player_id] = {
+        score: 0,
+        wins: 0,
+        losses: 0,
+        ties: 0,
+      };
+    }
   }
 
   setActiveGameType(gameType) {
     if (this.gameTypes.includes(gameType)) {
       this.activeGameType = gameType;
       console.log(`Active game type set to '${gameType}'.`);
-      // Optionally, notify admin about the game type change
-      this.io.emit("admin_message", {
+      // Notify admins about the game type change
+      this.io.to("admins").emit("admin_message", {
         message: `Game type changed to '${gameType}'.`,
       });
       // Notify all clients of the game type change
-      this.io.emit("game_type_changed", { gameType: this.activeGameType });
+      this.io
+        .to("game")
+        .emit("game_type_changed", { gameType: this.activeGameType });
       // Optionally, start a new round if needed
       // this.startNewRound();
     }
@@ -71,7 +90,7 @@ class GameManager {
     if (!this.gameState.gameLoop) {
       this.startGameLoop();
       console.log(`Game '${this.activeGameType}' started.`);
-      this.io.emit("admin_message", {
+      this.io.to("admins").emit("admin_message", {
         message: `Game '${this.activeGameType}' started.`,
       });
     }
@@ -85,7 +104,7 @@ class GameManager {
     this.gameState.state = "waiting";
     this.gameState.currentPrompt = null;
     this.gameState.responses = [];
-    // Disconnect all clients
+    // Disconnect all Game Testers
     Object.values(this.clients).forEach((client) => {
       client.socket.disconnect(true);
     });
@@ -94,17 +113,18 @@ class GameManager {
     // Reset player scores
     this.playerScores = {};
     console.log(`Game '${this.activeGameType}' reset.`);
-    // Notify clients to reset
-    this.io.emit("reset");
+    // Notify all clients to reset
+    this.io.to("game").emit("reset");
+    this.io.to("admins").emit("reset");
     // Broadcast updated player list
     this.broadcastPlayerList();
     // Emit admin message
-    this.io.emit("admin_message", {
+    this.io.to("admins").emit("admin_message", {
       message: `Game '${this.activeGameType}' reset.`,
     });
 
-    // Emit updated player scores to Admin Dashboard
-    this.io.emit("admin_player_scores", { scores: [] });
+    // Emit updated player scores to Admin Dashboard and Game Testers
+    this.broadcastPlayerScores();
   }
 
   updateConfig(promptInterval, responseTimeout) {
@@ -116,13 +136,13 @@ class GameManager {
       this.startGameLoop();
     }
     console.log(
-      `Game configuration updated: Prompt Interval=${promptInterval}, Response Timeout=${responseTimeout}`
+      `Game configuration updated: Prompt Interval=${promptInterval}ms, Response Timeout=${responseTimeout}ms.`
     );
-    this.io.emit("admin_message", {
+    this.io.to("admins").emit("admin_message", {
       message: `Game configuration updated: Prompt Interval=${promptInterval}ms, Response Timeout=${responseTimeout}ms.`,
     });
     // Notify all clients about the updated configuration
-    this.io.emit("config_updated", {
+    this.io.to("game").emit("config_updated", {
       promptInterval: this.gameState.promptInterval,
       responseTimeout: this.gameState.responseTimeout,
     });
@@ -152,27 +172,26 @@ class GameManager {
 
     console.log(`New Prompt: ${this.gameState.currentPrompt}`);
 
-    // Broadcast prompt to all connected clients
-    this.io.emit("prompt", {
+    // Calculate relative timeout
+    const responseTimeout = this.gameState.responseTimeout; // 8000ms
+
+    // Broadcast prompt to all Game Testers
+    this.io.to("game").emit("prompt", {
       prompt: this.gameState.currentPrompt,
-      responseTimeout: this.gameState.responseTimeout,
+      responseTimeout: responseTimeout,
     });
 
     // Notify admin dashboard about the new round (for countdown)
-    const nextRoundTime =
-      Date.now() +
-      this.gameState.promptInterval +
-      this.gameState.responseTimeout +
-      2000;
-    this.io.emit("admin_round_started", {
+    const countdownDuration = responseTimeout; // e.g., 8000ms
+    this.io.to("admins").emit("admin_round_started", {
       prompt: this.gameState.currentPrompt,
-      nextRoundTime: nextRoundTime,
+      countdownDuration: countdownDuration,
     });
 
     // Set a timeout to collect responses
     setTimeout(() => {
       this.collectResponses();
-    }, this.gameState.responseTimeout);
+    }, responseTimeout);
   }
 
   collectResponses() {
@@ -238,12 +257,12 @@ class GameManager {
       });
     });
 
-    // Broadcast results to all clients
-    this.io.emit("result", {
+    // Broadcast results to all Game Testers
+    this.io.to("game").emit("result", {
       results: results,
     });
 
-    // Send updated player scores to admin dashboard
+    // Send updated player scores to Admin Dashboard and Game Testers
     this.broadcastPlayerScores();
 
     this.gameState.state = "waiting";
@@ -281,7 +300,7 @@ class GameManager {
       playerScore.ties += 1;
     }
 
-    // Emit updated player scores to Admin Dashboard
+    // Emit updated player scores to Admin Dashboard and Game Testers
     this.broadcastPlayerScores();
   }
 
@@ -295,7 +314,10 @@ class GameManager {
       };
       return { player_id, ...playerScore };
     });
-    this.io.emit("admin_player_scores", {
+    this.io.to("admins").emit("admin_player_scores", {
+      scores,
+    });
+    this.io.to("game").emit("player_scores", {
       scores,
     });
   }

@@ -1,4 +1,4 @@
-// src/components/AdminDashBoard/AdminDashboard.js
+// src/components/AdminDashboard/AdminDashboard.js
 
 import React, { useEffect, useState, useContext } from "react";
 import { SocketContext } from "../../contexts/SocketContext";
@@ -12,12 +12,13 @@ import { Container, Typography, Grid } from "@mui/material"; // MUI Components
 function AdminDashboard() {
   const socket = useContext(SocketContext);
   const [gameType, setGameType] = useState("rps");
-  const [nextRoundTime, setNextRoundTime] = useState(null);
+  const [countdownDuration, setCountdownDuration] = useState(null); // Updated state
   const [currentPrompt, setCurrentPrompt] = useState("N/A");
   const [clientCount, setClientCount] = useState(0);
   const [clients, setClients] = useState([]);
   const [playerScores, setPlayerScores] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [timer, setTimer] = useState(null); // For the countdown display
 
   useEffect(() => {
     if (!socket) return;
@@ -44,14 +45,15 @@ function AdminDashboard() {
 
     socket.on("game_type_changed", (data) => {
       setGameType(data.gameType);
-      setNextRoundTime(null);
+      setCountdownDuration(null); // Reset timer
       setCurrentPrompt("N/A");
       socket.emit("admin_request_update");
     });
 
     socket.on("admin_round_started", (data) => {
-      setNextRoundTime(data.nextRoundTime);
+      console.log("Received 'admin_round_started' event:", data); // Add this line
       setCurrentPrompt(data.prompt);
+      setCountdownDuration(data.countdownDuration);
     });
 
     socket.on("admin_player_scores", (data) => {
@@ -59,7 +61,7 @@ function AdminDashboard() {
     });
 
     socket.on("reset", () => {
-      setNextRoundTime(null);
+      setCountdownDuration(null);
       setCurrentPrompt("N/A");
       toast.info("Game has been reset.");
     });
@@ -75,6 +77,47 @@ function AdminDashboard() {
     };
   }, [socket]);
 
+  // Optional: Implement a countdown display using countdownDuration
+  useEffect(() => {
+    if (countdownDuration === null) {
+      setTimer(null);
+      return;
+    }
+
+    let endTime = Date.now() + countdownDuration;
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const difference = endTime - now;
+
+      if (difference <= 0) {
+        setTimer("Time's up!");
+        clearInterval(intervalId);
+        return;
+      }
+
+      const seconds = Math.floor((difference / 1000) % 60);
+      const minutes = Math.floor((difference / (1000 * 60)) % 60);
+      const hours = Math.floor(difference / (1000 * 60 * 60));
+
+      let timeString = "";
+      if (hours > 0) timeString += `${hours}h `;
+      if (minutes > 0) timeString += `${minutes}m `;
+      timeString += `${seconds}s`;
+
+      setTimer(timeString);
+    };
+
+    // Initial call
+    updateTimer();
+
+    // Update every second
+    const intervalId = setInterval(updateTimer, 1000);
+
+    // Cleanup on unmount or when countdownDuration changes
+    return () => clearInterval(intervalId);
+  }, [countdownDuration]);
+
   return (
     <Container maxWidth="lg" style={{ marginTop: "20px" }}>
       <Typography variant="h4" gutterBottom>
@@ -87,7 +130,8 @@ function AdminDashboard() {
         <Grid item xs={12} md={6}>
           <CurrentPrompt
             currentPrompt={currentPrompt}
-            nextRoundTime={nextRoundTime}
+            countdownDuration={countdownDuration} // Update prop
+            timer={timer} // Pass the timer
           />
         </Grid>
         <Grid item xs={12}>
