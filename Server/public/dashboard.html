@@ -1,0 +1,223 @@
+<!-- public/admin_dashboard.html -->
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Admin Dashboard</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+      #controlPanel,
+      #gameStats {
+        margin-top: 20px;
+      }
+      #playerTable {
+        border-collapse: collapse;
+        width: 100%;
+      }
+      #playerTable th,
+      #playerTable td {
+        border: 1px solid #ddd;
+        padding: 8px;
+      }
+      #playerTable th {
+        background-color: #f2f2f2;
+      }
+      #messages {
+        border: 1px solid #ddd;
+        padding: 10px;
+        height: 200px;
+        overflow-y: scroll;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Admin Dashboard</h1>
+    <div id="controlPanel">
+      <h2>Control Panel</h2>
+
+      <div>
+        <label for="gameSelect">Select Game Type:</label>
+        <select id="gameSelect">
+          <option value="rps">Rock-Paper-Scissors</option>
+          <option value="counting">Counting Game</option>
+        </select>
+        <button id="setGameTypeButton">Set Game Type</button>
+      </div>
+
+      <button id="startGameButton">Start Game</button>
+      <button id="resetGameButton">Reset Game</button>
+
+      <!-- Countdown Timer -->
+      <div>
+        <h3>Next Round Starts In: <span id="countdownTimer">N/A</span></h3>
+      </div>
+
+      <div>
+        <label for="promptIntervalInput">Prompt Interval (ms):</label>
+        <input type="number" id="promptIntervalInput" value="5000" />
+      </div>
+      <div>
+        <label for="responseTimeoutInput">Response Timeout (ms):</label>
+        <input type="number" id="responseTimeoutInput" value="3000" />
+      </div>
+      <button id="updateConfigButton">Update Configuration</button>
+    </div>
+    <div id="gameStats">
+      <h2>Game Statistics</h2>
+      <h3>Number of Connected Clients: <span id="clientCount">0</span></h3>
+      <h3>Connected Clients:</h3>
+      <ul id="clientList"></ul>
+      <h3>Player Scores:</h3>
+      <table id="playerTable">
+        <thead>
+          <tr>
+            <th>Player ID</th>
+            <th>Score</th>
+            <th>Wins</th>
+            <th>Losses</th>
+            <th>Ties</th>
+          </tr>
+        </thead>
+        <tbody id="playerTableBody"></tbody>
+      </table>
+    </div>
+    <div id="messages">
+      <h2>Server Messages</h2>
+    </div>
+
+    <div id="currentPrompt">
+      <h3>Current Prompt: <span id="currentPromptText">N/A</span></h3>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+
+      socket.on("connect", () => {
+        socket.emit("admin_join");
+        socket.emit("admin_request_update");
+      });
+
+      const countdownTimer = document.getElementById("countdownTimer");
+      const currentPromptText = document.getElementById("currentPromptText");
+      const clientCount = document.getElementById("clientCount");
+      let nextRoundTime = null;
+      const startGameButton = document.getElementById("startGameButton");
+      const resetGameButton = document.getElementById("resetGameButton");
+      const updateConfigButton = document.getElementById("updateConfigButton");
+      const setGameTypeButton = document.getElementById("setGameTypeButton");
+      const gameSelect = document.getElementById("gameSelect");
+      const promptIntervalInput = document.getElementById(
+        "promptIntervalInput"
+      );
+      const responseTimeoutInput = document.getElementById(
+        "responseTimeoutInput"
+      );
+      const clientList = document.getElementById("clientList");
+      const playerTableBody = document.getElementById("playerTableBody");
+      const messages = document.getElementById("messages");
+
+      // Event listeners for buttons
+      startGameButton.addEventListener("click", () => {
+        socket.emit("admin_start_game");
+      });
+
+      resetGameButton.addEventListener("click", () => {
+        socket.emit("admin_reset_game");
+      });
+
+      setGameTypeButton.addEventListener("click", () => {
+        const selectedGameType = gameSelect.value;
+        socket.emit("admin_set_game_type", { gameType: selectedGameType });
+      });
+
+      updateConfigButton.addEventListener("click", () => {
+        const promptInterval = parseInt(promptIntervalInput.value);
+        const responseTimeout = parseInt(responseTimeoutInput.value);
+        socket.emit("admin_update_config", {
+          promptInterval,
+          responseTimeout,
+        });
+      });
+
+      function updateCountdown() {
+        if (nextRoundTime) {
+          const now = Date.now();
+          const timeRemaining = Math.max(0, nextRoundTime - now);
+          countdownTimer.textContent =
+            (timeRemaining / 1000).toFixed(1) + " seconds";
+
+          if (timeRemaining > 0) {
+            setTimeout(updateCountdown, 100); // Update every 100ms
+          } else {
+            countdownTimer.textContent = "Starting...";
+          }
+        } else {
+          countdownTimer.textContent = "N/A";
+        }
+      }
+
+      // Handle server messages
+      socket.on("admin_message", (data) => {
+        const msg = document.createElement("p");
+        msg.textContent = `[${new Date().toLocaleTimeString()}] ${
+          data.message
+        }`;
+        messages.appendChild(msg);
+        messages.scrollTop = messages.scrollHeight;
+      });
+
+      socket.on("admin_client_list", (data) => {
+        clientList.innerHTML = "";
+        data.clients.forEach((client) => {
+          const li = document.createElement("li");
+          li.textContent = client.player_id;
+          clientList.appendChild(li);
+        });
+
+        clientCount.textContent = data.clients.length;
+      });
+
+      // Update the game type when the server confirms the change
+      socket.on("game_type_changed", (data) => {
+        gameSelect.value = data.gameType;
+        nextRoundTime = null;
+        updateCountdown();
+        currentPromptText.textContent = "N/A";
+        socket.emit("admin_request_update");
+      });
+
+      socket.on("admin_round_started", (data) => {
+        nextRoundTime = data.nextRoundTime;
+        updateCountdown();
+
+        currentPromptText.textContent = data.prompt;
+      });
+
+      // Update player scores
+      socket.on("admin_player_scores", (data) => {
+        playerTableBody.innerHTML = "";
+        data.scores.forEach((player) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+                  <td>${player.player_id}</td>
+                  <td>${player.score}</td>
+                  <td>${player.wins}</td>
+                  <td>${player.losses}</td>
+                  <td>${player.ties}</td>
+              `;
+          playerTableBody.appendChild(tr);
+        });
+      });
+
+      // Reset countdown on game reset
+      socket.on("reset", () => {
+        nextRoundTime = null;
+        updateCountdown();
+        currentPromptText.textContent = "N/A";
+      });
+    </script>
+  </body>
+</html>

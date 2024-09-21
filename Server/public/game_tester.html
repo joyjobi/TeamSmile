@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Game Tester</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+      #gameContainer {
+        display: none;
+        margin-top: 20px;
+      }
+      #playerList {
+        list-style-type: none;
+        padding: 0;
+      }
+      #playerList li {
+        margin-bottom: 5px;
+      }
+      #responseInput,
+      #submitResponseButton {
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Game Tester</h1>
+    <div>
+      <label for="playerIdInput">Enter your Player ID:</label>
+      <input type="text" id="playerIdInput" placeholder="Player123" />
+      <button id="joinButton">Join Game</button>
+    </div>
+    <div id="gameContainer">
+      <h2 id="gameTitle">Game</h2>
+      <div id="promptContainer">
+        <p id="promptText"></p>
+      </div>
+      <div id="responseContainer">
+        <input
+          type="text"
+          id="responseInput"
+          placeholder="Enter your response"
+          disabled
+        />
+        <button id="submitResponseButton" disabled>Submit Response</button>
+        <p id="responseCountdownText"></p>
+      </div>
+      <div id="resultContainer">
+        <p id="resultText"></p>
+      </div>
+      <div>
+        <h3>Connected Players:</h3>
+        <ul id="playerList"></ul>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+
+      let player_id = "";
+      let gameType = "";
+      let gameState = "waiting"; // 'waiting', 'prompted', 'responded'
+      let promptReceivedTime = 0;
+      let countdownInterval;
+
+      const playerIdInput = document.getElementById("playerIdInput");
+      const joinButton = document.getElementById("joinButton");
+      const gameContainer = document.getElementById("gameContainer");
+      const gameTitle = document.getElementById("gameTitle");
+      const promptText = document.getElementById("promptText");
+      const responseInput = document.getElementById("responseInput");
+      const submitResponseButton = document.getElementById(
+        "submitResponseButton"
+      );
+      const responseCountdownText = document.getElementById(
+        "responseCountdownText"
+      );
+      const resultText = document.getElementById("resultText");
+      const playerList = document.getElementById("playerList");
+
+      joinButton.addEventListener("click", () => {
+        player_id = playerIdInput.value.trim();
+
+        if (player_id === "") {
+          alert("Please enter a Player ID.");
+          return;
+        }
+
+        socket.emit("join", { player_id: player_id });
+
+        gameContainer.style.display = "block";
+      });
+
+      // Receive the active game type from the server
+      socket.on("game_type", (data) => {
+        gameType = data.gameType;
+        gameTitle.textContent =
+          gameType === "rps" ? "Rock-Paper-Scissors" : "Counting Game";
+      });
+
+      // Update game type if it changes
+      socket.on("game_type_changed", (data) => {
+        gameType = data.gameType;
+        gameTitle.textContent =
+          gameType === "rps" ? "Rock-Paper-Scissors" : "Counting Game";
+        alert(`Game type changed to: ${gameTitle.textContent}`);
+      });
+
+      socket.on("prompt", (data) => {
+        gameState = "prompted";
+
+        promptText.textContent = `Prompt: ${data.prompt}`;
+        resultText.textContent = "";
+
+        responseInput.disabled = false;
+        submitResponseButton.disabled = false;
+
+        promptReceivedTime = Date.now();
+
+        startResponseCountdown(data.responseTimeout);
+      });
+
+      submitResponseButton.addEventListener("click", () => {
+        if (gameState !== "prompted") {
+          alert("It's not time to submit a response.");
+          return;
+        }
+
+        const response = responseInput.value.trim();
+        if (response === "") {
+          alert("Please enter your response.");
+          return;
+        }
+
+        const responseTime = Date.now() - promptReceivedTime;
+        const confidenceScore = 1.0; // Adjust as necessary
+
+        socket.emit("response", {
+          player_id: player_id,
+          gesture: response,
+          response_time: responseTime,
+          confidence_score: confidenceScore,
+        });
+
+        responseInput.value = "";
+
+        responseInput.disabled = true;
+        submitResponseButton.disabled = true;
+
+        gameState = "responded";
+
+        clearResponseCountdown();
+      });
+
+      socket.on("result", (data) => {
+        const result = data.results.find((r) => r.player_id === player_id);
+        if (result) {
+          resultText.textContent = `Result: ${result.result_text}`;
+        } else {
+          resultText.textContent = "No result received.";
+        }
+
+        gameState = "waiting";
+
+        responseInput.disabled = true;
+        submitResponseButton.disabled = true;
+
+        promptText.textContent = "";
+        clearResponseCountdown();
+      });
+
+      function startResponseCountdown(duration) {
+        let timeRemaining = duration;
+        responseCountdownText.textContent = `${(timeRemaining / 1000).toFixed(
+          1
+        )} seconds`;
+
+        countdownInterval = setInterval(() => {
+          timeRemaining -= 100;
+          if (timeRemaining <= 0) {
+            clearInterval(countdownInterval);
+            responseCountdownText.textContent = "Time's up!";
+            responseInput.disabled = true;
+            submitResponseButton.disabled = true;
+          } else {
+            responseCountdownText.textContent = `${(
+              timeRemaining / 1000
+            ).toFixed(1)} seconds`;
+          }
+        }, 100);
+      }
+
+      function clearResponseCountdown() {
+        if (countdownInterval) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+        }
+        responseCountdownText.textContent = "";
+      }
+
+      socket.on("player_list", (data) => {
+        playerList.innerHTML = "";
+        data.clients.forEach((client) => {
+          const li = document.createElement("li");
+          li.textContent = client.player_id;
+          playerList.appendChild(li);
+        });
+      });
+
+      socket.on("reset", () => {
+        alert("Game has been reset.");
+        location.reload();
+      });
+    </script>
+  </body>
+</html>
