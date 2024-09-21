@@ -1,5 +1,8 @@
 // gameManager.js
 
+// Notify admins about the game type change
+const getCurrentTimestamp = () => new Date().toISOString();
+
 class GameManager {
   constructor(io) {
     this.io = io;
@@ -75,9 +78,11 @@ class GameManager {
     if (this.gameTypes.includes(gameType)) {
       this.activeGameType = gameType;
       console.log(`Active game type set to '${gameType}'.`);
-      // Notify admins about the game type change
+
       this.io.to("admins").emit("admin_message", {
-        message: `Game type changed to '${gameType}'.`,
+        message: `Game '${this.activeGameType}' has been stopped.`,
+        timestamp: getCurrentTimestamp(), // Added timestamp
+        type: "info", // Added type (e.g., 'info', 'warning', 'error')
       });
       // Notify all clients of the game type change
       this.io
@@ -99,6 +104,8 @@ class GameManager {
       );
       this.io.to("admins").emit("admin_message", {
         message: `Game '${this.activeGameType}' started for ${totalRounds} rounds.`,
+        timestamp: getCurrentTimestamp(),
+        type: "info",
       });
     }
   }
@@ -130,6 +137,8 @@ class GameManager {
     // Emit admin message
     this.io.to("admins").emit("admin_message", {
       message: `Game '${this.activeGameType}' reset.`,
+      timestamp: getCurrentTimestamp(),
+      type: "info",
     });
 
     // Emit updated player scores to Admin Dashboard and Game Testers
@@ -148,6 +157,8 @@ class GameManager {
     );
     this.io.to("admins").emit("admin_message", {
       message: `Game configuration updated: Prompt Interval=${promptInterval}ms, Response Timeout=${responseTimeout}ms.`,
+      timestamp: getCurrentTimestamp(),
+      type: "info",
     });
     // Notify all clients about the updated configuration
     this.io.to("game").emit("config_updated", {
@@ -181,6 +192,8 @@ class GameManager {
     console.log(`Game '${this.activeGameType}' has been stopped.`);
     this.io.to("admins").emit("admin_message", {
       message: `Game '${this.activeGameType}' has been stopped.`,
+      timestamp: getCurrentTimestamp(),
+      type: "info",
     });
   }
 
@@ -210,6 +223,8 @@ class GameManager {
     this.io.to("game").emit("prompt", {
       prompt: this.gameState.currentPrompt,
       responseTimeout: responseTimeout,
+      currentRound: this.gameState.currentRound, // Added current round
+      totalRounds: this.gameState.totalRounds, // Added total rounds
     });
 
     // Notify admin dashboard about the new round (for countdown)
@@ -254,7 +269,7 @@ class GameManager {
           (response.confidence_score * confidenceWeight +
             timeScore * timeWeight) *
           100;
-        resultText = `${outcome} | Round Score: ${roundScore.toFixed(1)}`;
+        resultText = `${outcome}`;
 
         // Update player scores
         this.updatePlayerScore(response.player_id, outcome);
@@ -274,7 +289,7 @@ class GameManager {
           (response.confidence_score * confidenceWeight +
             timeScore * timeWeight) *
           100;
-        resultText = `${correctness} | Round Score: ${roundScore.toFixed(1)}`;
+        resultText = `${correctness}`;
 
         // Update player scores
         this.updatePlayerScore(
