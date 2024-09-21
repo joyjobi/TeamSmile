@@ -27,12 +27,26 @@ module.exports = (io, socket, gameManager) => {
     }
   });
 
-  socket.on("admin_start_game", () => {
+  socket.on("admin_start_game", (data) => {
+    // Accept data containing rounds
     if (isAdmin) {
-      console.log("Received 'admin_start_game' event from admin.");
-      gameManager.startGame();
+      const rounds = (data && data.rounds) || 5; // Default to 5 rounds if not specified
+      console.log(
+        `Received 'admin_start_game' event from admin with rounds: ${rounds}`
+      );
+      gameManager.startGame(rounds);
     } else {
       console.log("Received 'admin_start_game' event from non-admin.");
+      socket.emit("error", { message: "Unauthorized action." });
+    }
+  });
+
+  socket.on("admin_stop_game", () => {
+    if (isAdmin) {
+      console.log("Received 'admin_stop_game' event from admin.");
+      gameManager.stopGame();
+    } else {
+      console.log("Received 'admin_stop_game' event from non-admin.");
       socket.emit("error", { message: "Unauthorized action." });
     }
   });

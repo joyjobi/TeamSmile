@@ -119,22 +119,21 @@ function AdminDashboard() {
   }, [countdownDuration]);
 
   return (
-    <Container maxWidth="lg" style={{ marginTop: "20px" }}>
+    <Container maxWidth="lg" style={{ marginTop: "10px" }}>
       <Typography variant="h4" gutterBottom>
         Admin Dashboard
       </Typography>
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12} md={4}>
           <ControlPanel gameType={gameType} setGameType={setGameType} />
-        </Grid>
-        <Grid item xs={12} md={6}>
+
           <CurrentPrompt
             currentPrompt={currentPrompt}
             countdownDuration={countdownDuration} // Update prop
             timer={timer} // Pass the timer
           />
         </Grid>
-        <Grid item xs={12}>
+        <Grid item xs={12} md={8}>
           <GameStats
             clientCount={clientCount}
             clients={clients}

@@ -9,11 +9,13 @@ class GameManager {
     this.activeGameType = "rps"; // Default game type
     this.gameState = {
       promptInterval: 3000, // 3 seconds
-      responseTimeout: 8000, // 8 seconds
+      responseTimeout: 7000, // 7 seconds
       currentPrompt: null,
       state: "waiting", // 'waiting', 'prompted', 'responded'
       responses: [],
       gameLoop: null,
+      totalRounds: 5, // Default number of rounds
+      currentRound: 0, // Tracks the current round
     };
     this.playerScores = {}; // { player_id: { score, wins, losses, ties } }
   }
@@ -86,12 +88,17 @@ class GameManager {
     }
   }
 
-  startGame() {
+  startGame(totalRounds = 5) {
+    // Default to 5 rounds if not specified
     if (!this.gameState.gameLoop) {
+      this.gameState.totalRounds = totalRounds;
+      this.gameState.currentRound = 0;
       this.startGameLoop();
-      console.log(`Game '${this.activeGameType}' started.`);
+      console.log(
+        `Game '${this.activeGameType}' started for ${totalRounds} rounds.`
+      );
       this.io.to("admins").emit("admin_message", {
-        message: `Game '${this.activeGameType}' started.`,
+        message: `Game '${this.activeGameType}' started for ${totalRounds} rounds.`,
       });
     }
   }
@@ -104,6 +111,8 @@ class GameManager {
     this.gameState.state = "waiting";
     this.gameState.currentPrompt = null;
     this.gameState.responses = [];
+    this.gameState.currentRound = 0; // Reset current round
+    this.gameState.totalRounds = 5; // Reset to default rounds
     // Disconnect all Game Testers
     Object.values(this.clients).forEach((client) => {
       client.socket.disconnect(true);
@@ -126,7 +135,6 @@ class GameManager {
     // Emit updated player scores to Admin Dashboard and Game Testers
     this.broadcastPlayerScores();
   }
-
   updateConfig(promptInterval, responseTimeout) {
     this.gameState.promptInterval = promptInterval;
     this.gameState.responseTimeout = responseTimeout;
@@ -151,15 +159,36 @@ class GameManager {
   startGameLoop() {
     this.gameState.gameLoop = setInterval(() => {
       if (this.connectedPlayers.length > 0) {
-        this.startNewRound();
+        if (this.gameState.currentRound < this.gameState.totalRounds) {
+          this.startNewRound();
+        } else {
+          this.stopGame(); // Automatically stop the game after reaching totalRounds
+        }
       }
     }, this.gameState.promptInterval + this.gameState.responseTimeout + 2000);
+  }
+
+  stopGame() {
+    if (this.gameState.gameLoop) {
+      clearInterval(this.gameState.gameLoop);
+      this.gameState.gameLoop = null;
+    }
+    this.gameState.state = "waiting";
+    this.gameState.currentPrompt = null;
+    this.gameState.responses = [];
+    this.gameState.currentRound = 0;
+    this.gameState.totalRounds = 5; // Reset to default rounds if desired
+    console.log(`Game '${this.activeGameType}' has been stopped.`);
+    this.io.to("admins").emit("admin_message", {
+      message: `Game '${this.activeGameType}' has been stopped.`,
+    });
   }
 
   startNewRound() {
     const gameType = this.activeGameType;
     this.gameState.state = "prompted";
     this.gameState.responses = [];
+    this.gameState.currentRound += 1; // Increment the current round
 
     // Generate a prompt
     if (gameType === "rps") {
@@ -170,10 +199,12 @@ class GameManager {
       this.gameState.currentPrompt = Math.floor(Math.random() * 5) + 1; // Random number between 1 and 5
     }
 
-    console.log(`New Prompt: ${this.gameState.currentPrompt}`);
+    console.log(
+      `Round ${this.gameState.currentRound}: New Prompt: ${this.gameState.currentPrompt}`
+    );
 
     // Calculate relative timeout
-    const responseTimeout = this.gameState.responseTimeout; // 8000ms
+    const responseTimeout = this.gameState.responseTimeout; // 7000ms
 
     // Broadcast prompt to all Game Testers
     this.io.to("game").emit("prompt", {
@@ -182,10 +213,12 @@ class GameManager {
     });
 
     // Notify admin dashboard about the new round (for countdown)
-    const countdownDuration = responseTimeout; // e.g., 8000ms
+    const countdownDuration = responseTimeout; // e.g., 7000ms
     this.io.to("admins").emit("admin_round_started", {
       prompt: this.gameState.currentPrompt,
       countdownDuration: countdownDuration,
+      currentRound: this.gameState.currentRound, // Optionally send current round number
+      totalRounds: this.gameState.totalRounds, // Optionally send total rounds
     });
 
     // Set a timeout to collect responses
