@@ -7,24 +7,6 @@ This project is a multi-player game platform featuring two main games currently:
 2. **Server**: Node.js-based server for managing game states, communication, and an admin dashboard.
 
 
-## Project Structure 
-├── Client
-│   ├── game_logic.py
-│   ├── game_manager.py
-│   ├── gesture_detection.py
-│   ├── main.py
-│   ├── network_client.py
-│   └── README.md
-├── Server
-│   ├── admin-dashboard
-│   ├── gameManager.js
-│   ├── minimal_server.js
-│   ├── server.js
-│   ├── socketHandler.js
-│   └── README.md
-└── README.md
-
-
 ### Prerequisites
 - **Node.js** and **npm**: Make sure you have Node.js installed.
 - **Python 3.x**: Required for running the client application.
