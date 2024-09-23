@@ -1,13 +1,28 @@
-# Project Overview
+# TeamSmile Game Platform
 
-This repository contains a project with a Python client and a NodeJS server.
+## Description
+This project is a multi-player game platform featuring two main games currently: Rock-Paper-Scissors and a Hand Gesture Counting Game to stream through Conferencing Video Feed. It consists of two primary components:
 
-## Structure
+1. **Client**: Python-based application for game logic and gesture detection.
+2. **Server**: Node.js-based server for managing game states, communication, and an admin dashboard.
 
-- `TS/`
-  - `client/` - Python client
-  - `server/` - NodeJS server
+## Table of Contents
+- [Installation](#installation)
+- [Setup](#setup)
+- [Usage](#usage)
+- [Project Structure](#project-structure)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Getting Started
+## Installation
 
-Follow the instructions in the respective `README.md` files in the `client` and `server` directories to set up and run the project.
+### Prerequisites
+- **Node.js** and **npm**: Make sure you have Node.js installed.
+- **Python 3.x**: Required for running the client application.
+- **OpenCV**: Required for gesture detection on the client side.
+
+### Installing Dependencies
+#### Server
+```bash
+cd Server
+npm install
