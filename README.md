@@ -19,6 +19,11 @@ cd Server
 npm install
 
 ```
+
+## Webcam client 
+![image](https://github.com/user-attachments/assets/8459d6d5-cb1f-46fe-8fbd-2dd1934b50a6)
+
+
 ## Admin Dashboard
 ![image](https://github.com/user-attachments/assets/8263be7a-2f1b-4f4b-bdd6-548736c6c7b3)
 
