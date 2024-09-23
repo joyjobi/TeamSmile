@@ -6,13 +6,6 @@ This project is a multi-player game platform featuring two main games currently:
 1. **Client**: Python-based application for game logic and gesture detection.
 2. **Server**: Node.js-based server for managing game states, communication, and an admin dashboard.
 
-## Table of Contents
-- [Installation](#installation)
-- [Setup](#setup)
-- [Usage](#usage)
-- [Project Structure](#project-structure)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Installation
 
