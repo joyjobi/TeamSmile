@@ -28,7 +28,6 @@ module.exports = (io, socket, gameManager) => {
   });
 
   socket.on("admin_start_game", (data) => {
-    // Accept data containing rounds
     if (isAdmin) {
       const rounds = (data && data.rounds) || 5; // Default to 5 rounds if not specified
       console.log(
@@ -93,8 +92,8 @@ module.exports = (io, socket, gameManager) => {
 
   // Handle player responses
   socket.on("response", (data) => {
-    const { player_id } = data;
-    console.log(`Received response from ${player_id}:`, data);
+    const { player_id, gesture, response_time, confidence_score } = data;
+    console.log(`Received 'response' event from Player ID: ${player_id}, Gesture: ${gesture}, Time: ${response_time}s, Confidence: ${confidence_score}`);
     gameManager.recordResponse(data);
     io.emit("admin_message", {
       message: `Received response from '${player_id}'.`,

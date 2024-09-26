@@ -2,7 +2,12 @@
 
 import asyncio
 import random
-import time
+import logging
+
+from rock_paper_scissors import RockPaperScissorsGame
+from counting_game import CountingGame
+
+logger = logging.getLogger(__name__)
 
 class GameManager:
     def __init__(self, game_type, network_client=None, mode='networked'):
@@ -16,10 +21,10 @@ class GameManager:
         self.game_type = game_type  # 'rps' or 'counting'
         self.network_client = network_client
         self.mode = mode  # 'networked', 'local', 'self-play'
-        self.is_networked = self.mode == 'networked' and network_client is not None
+        self.is_networked = self.mode == 'networked'  # Depend solely on mode
         self.prompt = None
         self.round_score = 0
-        self.result_text = 'N/A'  # Initialize result_text
+        self.result_text = 'N/A'
         self.current_round = 0
         self.total_rounds = 5  # Default number of rounds
         self.score = 0
@@ -31,17 +36,52 @@ class GameManager:
         elif game_type == 'counting':
             self.response_timeout = 5  # seconds
 
-        # Assign player_id based on mode
-        if self.is_networked:
-            self.player_id = self.network_client.player_id
-        elif self.mode == 'self-play':
-            self.player_id = 'System'
-        else:
-            self.player_id = 'LocalPlayer'
+        # Initialize player_id
+        self.player_id = 'LocalPlayer'  # Default for non-networked mode
 
         # Game loop task
         self.game_loop_task = None
         self.round_event = asyncio.Event()
+        self.prompt_queue = asyncio.Queue()
+
+        # Initialize specific game logic
+        if self.game_type == 'rps':
+            self.game_logic = RockPaperScissorsGame(self)
+        elif self.game_type == 'counting':
+            self.game_logic = CountingGame(self)
+        else:
+            logger.error(f"GameManager: Unsupported game type '{self.game_type}'.")
+            self.game_logic = None
+
+        # UI Queue for communication
+        self.ui_queue = None  # To be set via set_ui_queue
+
+    def set_ui_queue(self, ui_queue):
+        """
+        Set the UI queue for sending messages to the UI.
+
+        :param ui_queue: Queue object for UI communication
+        """
+        self.ui_queue = ui_queue
+
+    def send_ui_message(self, msg_type, msg_text):
+        """
+        Send a message to the UI via the ui_queue.
+
+        :param msg_type: Type of the message (e.g., 'result', 'score')
+        :param msg_text: The message content
+        """
+        if self.ui_queue:
+            self.ui_queue.put((msg_type, msg_text))
+
+    def set_player_id(self, player_id):
+        """
+        Set the player ID after network_client is connected.
+
+        :param player_id: The unique player ID from the server
+        """
+        self.player_id = player_id
+        logger.info(f"GameManager: Player ID set to {self.player_id}")
 
     async def start_game(self, total_rounds=5):
         """
@@ -49,15 +89,17 @@ class GameManager:
 
         :param total_rounds: Number of rounds to play
         """
-        if self.game_loop_task is None:
-            self.total_rounds = total_rounds
-            self.current_round = 0
-            self.score = 0
-            self.game_loop_task = asyncio.create_task(self.game_loop())
-            print(f"GameManager: Game '{self.game_type}' started for {self.total_rounds} rounds.")
-            # Optionally notify via network_client
-            if self.is_networked:
-                await self.network_client.send_admin_message(f"Game '{self.game_type}' started for {self.total_rounds} rounds.", type='info')
+        self.total_rounds = total_rounds
+        self.current_round = 0
+        self.score = 0
+        self.game_loop_task = asyncio.create_task(self.game_loop())
+        logger.info(f"GameManager: Game '{self.game_type}' started for {self.total_rounds} rounds.")
+        self.send_ui_message("prompt", f"Game '{self.game_type}' started for {self.total_rounds} rounds.")
+        # Optionally notify via network_client
+        if self.is_networked and self.network_client:
+            await self.network_client.sio.emit('admin_message', {
+                'message': f"Game '{self.game_type}' started for {self.total_rounds} rounds."
+            })
 
     async def stop_game(self):
         """
@@ -68,27 +110,14 @@ class GameManager:
             try:
                 await self.game_loop_task
             except asyncio.CancelledError:
-                pass
+                logger.info("GameManager: Game loop task cancelled successfully.")
             self.game_loop_task = None
             self.game_state = 'waiting'
-            print(f"GameManager: Game '{self.game_type}' has been stopped.")
-            if self.is_networked:
-                await self.network_client.send_admin_message(f"Game '{self.game_type}' has been stopped.", type='info')
-
-    async def reset_game(self):
-        """
-        Reset the game state.
-        """
-        await self.stop_game()
-        self.prompt = None
-        self.round_score = 0
-        self.result_text = 'N/A'  # Reset result_text
-        self.current_round = 0
-        self.score = 0
-        self.game_state = 'waiting'
-        print(f"GameManager: Game '{self.game_type}' has been reset.")
-        if self.is_networked:
-            await self.network_client.send_admin_message(f"Game '{self.game_type}' has been reset.", type='info')
+            logger.info(f"GameManager: Game '{self.game_type}' has been stopped.")
+            if self.is_networked and self.network_client:
+                await self.network_client.sio.emit('admin_message', {
+                    'message': f"Game '{self.game_type}' has been stopped."
+                })
 
     async def game_loop(self):
         """
@@ -97,109 +126,73 @@ class GameManager:
         try:
             while self.current_round < self.total_rounds:
                 self.current_round += 1
-                print(f"GameManager: --- Round {self.current_round} of {self.total_rounds} ---")
+                logger.info(f"GameManager: --- Round {self.current_round} of {self.total_rounds} ---")
 
-                # Get prompt based on mode
-                if self.mode == 'networked':
-                    await self.get_prompt_networked()
-                elif self.mode == 'local':
+                if self.is_networked:
+                    # Wait for a prompt from the server
+                    try:
+                        event_type, data = await asyncio.wait_for(self.prompt_queue.get(), timeout=self.response_timeout)
+                        if event_type == 'prompt':
+                            self.prompt = data.get('prompt')
+                            self.game_state = 'prompted'
+                            await self.handle_prompt()
+                    except asyncio.TimeoutError:
+                        logger.warning("GameManager: No prompt received within the timeout.")
+                        continue
+                else:
+                    # Generate local prompt
                     await self.get_prompt_local()
-                elif self.mode == 'self-play':
-                    await self.get_prompt_self_play()
-
-                # Notify game state
-                self.game_state = 'prompted'
 
                 # Wait for response or timeout
                 try:
                     await asyncio.wait_for(self.round_event.wait(), timeout=self.response_timeout)
                 except asyncio.TimeoutError:
-                    # Handle timeout
-                    self.game_state = 'responded'
-                    print("GameManager: No response received within the timeout.")
-                    # Calculate round score as 0
+                    logger.warning("GameManager: No response received within the timeout.")
                     self.round_score = 0
                     self.result_text = 'No response received.'
-                    # Notify result
-                    if self.is_networked:
-                        await self.network_client.send_round_result({
-                            'player_id': self.player_id,
-                            'result_text': self.result_text,
-                            'round_score': self.round_score
-                        })
-                finally:
-                    self.round_event.clear()
+                    self.send_ui_message("result", self.result_text)
+                    self.send_ui_message("score", f"Score: {self.score:.1f}")
+                    self.game_state = 'waiting'  # Reset state after timeout
 
-            # Game ended
-            print(f"GameManager: Game ended. Total score: {self.score}")
-            if self.is_networked:
-                await self.network_client.send_admin_message(f"Game ended. Total score: {self.score}", type='info')
+                self.round_event.clear()
+
+            logger.info(f"GameManager: Game ended. Total score: {self.score}")
+            self.send_ui_message("result", f"Game ended. Total score: {self.score}")
+            if self.is_networked and self.network_client:
+                await self.network_client.sio.emit('admin_message', {
+                    'message': f"Game ended. Total score: {self.score}"
+                })
         except asyncio.CancelledError:
-            print("GameManager: Game loop has been cancelled.")
+            logger.info("GameManager: Game loop has been cancelled.")
             pass
 
-    async def get_prompt_networked(self):
-        """
-        Request a new prompt from the server.
-        """
-        if self.network_client:
-            prompt_data = await self.network_client.get_prompt()
-            self.prompt = prompt_data.get('prompt')
-            print(f"GameManager: Received prompt from server: {self.prompt}")
-            self.game_state = 'prompted'  # Ensure game_state is set
-        else:
-            print("GameManager: No network client available for networked mode.")
+    async def handle_prompt(self):
+        """Handle prompt received from the server or generated locally."""
+        logger.info(f"GameManager: Handling prompt '{self.prompt}'.")
+        # Additional prompt handling logic here
+        # For example, update UI or notify players
 
     async def get_prompt_local(self):
-        """
-        Generate a new prompt locally.
-        """
+        """Generate a new prompt locally."""
         if self.game_type == 'rps':
             self.prompt = random.choice(['Rock', 'Paper', 'Scissors'])
         elif self.game_type == 'counting':
             self.prompt = random.randint(1, 5)
-        print(f"GameManager: Generated local prompt: {self.prompt}")
+        logger.info(f"GameManager: Generated local prompt: {self.prompt}")
+        self.game_state = 'prompted'
+        self.send_ui_message("prompt", f"Round {self.current_round}: {self.prompt}")
 
-    async def get_prompt_self_play(self):
+    async def receive_prompt(self, prompt_data):
         """
-        Generate a new prompt and automatically respond as both player and system.
+        Receive a prompt from the server and enqueue it for processing.
+
+        :param prompt_data: Data containing the prompt
         """
-        if self.game_type == 'rps':
-            self.prompt = random.choice(['Rock', 'Paper', 'Scissors'])
-            system_gesture = random.choice(['Rock', 'Paper', 'Scissors'])
-            print(f"GameManager: System Gesture: {system_gesture}")
-            # Simulate system response
-            await asyncio.sleep(1)  # Simulate response delay
-            result = self.handle_local_rps_scoring(user_gesture=system_gesture, response_time=1, confidence_score=1.0)
-            self.round_score = result['round_score']
-            self.score += self.round_score
-            self.result_text = result['result_text']
-            print(f"GameManager: Round {self.current_round} Result: {self.result_text} | Round Score: {self.round_score:.1f}")
-            if self.is_networked:
-                await self.network_client.send_round_result({
-                    'player_id': self.player_id,
-                    'result_text': self.result_text,
-                    'round_score': self.round_score
-                })
-        elif self.game_type == 'counting':
-            self.prompt = random.randint(1, 5)
-            target_number = self.prompt
-            print(f"GameManager: Target Number: {target_number}")
-            # Simulate system response
-            system_response = str(target_number)  # Assume correct response
-            response_time = 1  # seconds
-            confidence_score = 1.0
-            result = self.handle_local_counting_scoring(user_gesture=system_response, response_time=response_time, confidence_score=confidence_score)
-            self.round_score = result['round_score']
-            self.score += self.round_score
-            self.result_text = result['result_text']
-            print(f"GameManager: Round {self.current_round} Result: {self.result_text} | Round Score: {self.round_score:.1f}")
-            if self.is_networked:
-                await self.network_client.send_round_result({
-                    'player_id': self.player_id,
-                    'result_text': self.result_text,
-                    'round_score': self.round_score
-                })
+        if self.is_networked:
+            await self.prompt_queue.put(('prompt', prompt_data))
+            logger.debug(f"GameManager: Prompt received and enqueued: {prompt_data}")
+        else:
+            logger.warning("GameManager: Received prompt in non-networked mode.")
 
     async def receive_response(self, player_id, user_gesture, response_time, confidence_score):
         """
@@ -207,102 +200,73 @@ class GameManager:
 
         :param player_id: ID of the player
         :param user_gesture: Gesture submitted by the player
-        :param response_time: Time taken to respond
+        :param response_time: Time taken to respond (in seconds)
         :param confidence_score: Confidence in the gesture
+        :return: True if response was accepted, False otherwise
         """
         if self.game_state != 'prompted':
-            print("GameManager: No active prompt to receive responses.")
-            return
+            logger.warning("GameManager: No active prompt to receive responses.")
+            return False  # Response not accepted
 
-        if self.game_type == 'rps':
-            result = self.handle_local_rps_scoring(user_gesture, response_time, confidence_score)
-        elif self.game_type == 'counting':
-            result = self.handle_local_counting_scoring(user_gesture, response_time, confidence_score)
+        # Handle response based on game logic
+        if self.game_logic:
+            result = self.game_logic.handle_scoring(user_gesture, response_time, confidence_score)
         else:
-            result = {'result_text': 'Unknown game type.', 'round_score': 0}
+            result = {'result_text': 'Game logic not initialized.', 'round_score': 0}
 
         self.round_score = result['round_score']
         self.score += self.round_score
         self.result_text = result['result_text']
-        self.game_state = 'responded'
+        self.game_state = 'responded'  # Prevent further responses for this prompt
+        logger.info(f"GameManager: Player {player_id}: {self.result_text} | Round Score: {self.round_score:.1f}")
 
-        print(f"GameManager: Player {player_id}: {self.result_text} | Round Score: {self.round_score:.1f}")
-
-        if self.is_networked:
-            await self.network_client.send_round_result({
-                'player_id': player_id,
-                'result_text': self.result_text,
-                'round_score': self.round_score
-            })
+        # Update UI
+        self.send_ui_message("result", self.result_text)
+        self.send_ui_message("score", f"Score: {self.score:.1f}")
 
         # Set event to proceed to next round
         self.round_event.set()
 
-    def handle_local_rps_scoring(self, user_gesture, response_time, confidence_score):
+        return True  # Response accepted
+
+    async def reset(self):
         """
-        Handle scoring for Rock-Paper-Scissors locally.
-
-        :param user_gesture: Gesture submitted by the user
-        :param response_time: Time taken to respond
-        :param confidence_score: Confidence in the gesture
-        :return: Result dictionary
+        Reset the game state.
         """
-        system_gesture = self.prompt
-        outcome = self.determine_winner(user_gesture, system_gesture)
+        self.current_round = 0
+        self.score = 0
+        self.game_state = 'waiting'
+        self.prompt = None
+        self.round_score = 0
+        self.result_text = 'N/A'
+        logger.info("GameManager: Game has been reset.")
+        self.send_ui_message("result", "Game has been reset.")
+        self.send_ui_message("score", "Score: 0")
 
-        # Calculate score
-        time_weight = 0.3
-        confidence_weight = 0.7
-        time_score = max(0, (self.response_timeout - response_time) / self.response_timeout)
-        round_score = (confidence_score * confidence_weight + time_score * time_weight) * 100
-
-        return {
-            'result_text': f'{outcome}',
-            'round_score': round_score
-        }
-
-    def handle_local_counting_scoring(self, user_gesture, response_time, confidence_score):
+    async def change_game_type(self, new_game_type):
         """
-        Handle scoring for Counting game locally.
+        Change the current game type.
 
-        :param user_gesture: Gesture submitted by the user
-        :param response_time: Time taken to respond
-        :param confidence_score: Confidence in the gesture
-        :return: Result dictionary
+        :param new_game_type: 'rps' or 'counting'
         """
-        try:
-            user_number = int(user_gesture)
-        except ValueError:
-            return {
-                'result_text': 'Invalid input.',
-                'round_score': 0
-            }
+        if new_game_type not in ['rps', 'counting']:
+            logger.error(f"GameManager: Unsupported game type '{new_game_type}'.")
+            self.send_ui_message("Error", f"Unsupported game type '{new_game_type}'.")
+            return
 
-        target_number = self.prompt
-        if user_number == target_number:
-            correctness = 'Correct!'
-            base_score = 100
-        else:
-            correctness = f'Incorrect! Target was {target_number}'
-            base_score = 0
+        self.game_type = new_game_type
+        self.game_state = 'waiting'
+        self.prompt = None
+        self.round_score = 0
+        self.result_text = 'N/A'
+        self.current_round = 0
+        self.score = 0
 
-        # Calculate score
-        time_weight = 0.3
-        confidence_weight = 0.7
-        time_score = max(0, (self.response_timeout - response_time) / self.response_timeout)
-        round_score = (confidence_score * confidence_weight + time_score * time_weight) * base_score / 100
+        # Re-initialize game logic
+        if self.game_type == 'rps':
+            self.game_logic = RockPaperScissorsGame(self)
+        elif self.game_type == 'counting':
+            self.game_logic = CountingGame(self)
 
-        return {
-            'result_text': f'{correctness}',
-            'round_score': round_score
-        }
-
-    def determine_winner(self, player_gesture, system_gesture):
-        if player_gesture == system_gesture:
-            return 'Tie'
-        elif (player_gesture == 'Rock' and system_gesture == 'Scissors') or \
-             (player_gesture == 'Paper' and system_gesture == 'Rock') or \
-             (player_gesture == 'Scissors' and system_gesture == 'Paper'):
-            return 'You Win!'
-        else:
-            return 'You Lose!'
+        logger.info(f"GameManager: Game type changed to '{self.game_type}'.")
+        self.send_ui_message("prompt", f"Game type changed to '{self.game_type}'.")
